@@ -1,0 +1,53 @@
+# Every Monday, make the SnapPlanet app's hand-picked places' pictures (and the decades places' yearly
+# timelapse frames) from the satellite archives, and publish them with GitHub Pages. The app reads them
+# when the phone has nothing fresher, and computes them itself when they are missing.
+#
+# The code is in SnapPlanet's private repository, read with a read-only deploy key (secret
+# SNAPPLANET_DEPLOY_KEY). Nothing else is kept here: each run publishes a whole new site.
+name: Publish places
+
+on:
+  schedule:
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
+    inputs:
+      places:
+        description: "Place ids separated by spaces (empty: all)"
+        default: ""
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    # Apple's image libraries (ImageIO, CoreGraphics) make the pictures: a macOS runner.
+    runs-on: macos-latest
+    timeout-minutes: 240
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: jjrom/snapplanet
+          ssh-key: ${{ secrets.SNAPPLANET_DEPLOY_KEY }}
+          path: snapplanet
+
+      - name: Build
+        run: swift build -c release --product snaptest --package-path snapplanet/SnapPlanetCore
+
+      - name: Make the pictures
+        run: snapplanet/SnapPlanetCore/.build/release/snaptest publish site ${{ inputs.places }}
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - id: deploy
+        uses: actions/deploy-pages@v4

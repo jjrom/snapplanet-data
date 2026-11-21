@@ -1,11 +1,13 @@
 # SnapPlanet places
 
-Pictures of the hand-picked places of the SnapPlanet iPhone app, made every week from free Sentinel-2
-and Landsat imagery and served at https://jjrom.github.io/snapplanet-data/.
+Pictures of the SnapPlanet iPhone app's hand-picked places (every week) and current events (every six
+hours), made from free Sentinel-2 and Landsat imagery and served at https://jjrom.github.io/snapplanet-data/
+from the `gh-pages` branch.
 
 - `places/<id>.json`: the place's passes of the last year, its opening picture and, for "Decades" places,
   one clear picture a year since 1984.
 - `places/<id>/…`: the pictures.
+- `events/<id>.json` and `events/<id>/…`: an event's passes, and its first clear picture after it and the one before.
 
 Contains modified Copernicus Sentinel data (processed by SnapPlanet) and Landsat imagery courtesy of the
 U.S. Geological Survey.

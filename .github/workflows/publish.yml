@@ -1,27 +1,33 @@
-# Every Monday, make the SnapPlanet app's hand-picked places' pictures (and the decades places' yearly
-# timelapse frames) from the satellite archives, and publish them with GitHub Pages. The app reads them
-# when the phone has nothing fresher, and computes them itself when they are missing.
+# Publishes the SnapPlanet app's ready-made pictures with GitHub Pages, from the gh-pages branch:
+# - every Monday, the hand-picked places (and the decades places' yearly timelapse frames), in places/;
+# - every six hours, this month's events (first clear picture after, and the one before), in events/.
+# The app reads them when the phone has nothing fresher, and computes them itself when they are missing.
 #
 # The code is in SnapPlanet's private repository, read with a read-only deploy key (secret
-# SNAPPLANET_DEPLOY_KEY). Nothing else is kept here: each run publishes a whole new site.
-name: Publish places
+# SNAPPLANET_DEPLOY_KEY). Each run replaces its own folder and leaves the other one as it is; the branch
+# is kept to a single commit, so old pictures do not pile up in the repository.
+name: Publish pictures
 
 on:
   schedule:
-    - cron: "0 3 * * 1"
+    - cron: "0 3 * * 1"      # places
+    - cron: "30 */6 * * *"   # events
   workflow_dispatch:
     inputs:
-      places:
-        description: "Place ids separated by spaces (empty: all)"
+      what:
+        description: "What to publish"
+        type: choice
+        default: events
+        options: [events, places]
+      ids:
+        description: "Ids separated by spaces (empty: all)"
         default: ""
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 concurrency:
-  group: pages
+  group: site
   cancel-in-progress: false
 
 jobs:
@@ -29,25 +35,47 @@ jobs:
     # Apple's image libraries (ImageIO, CoreGraphics) make the pictures: a macOS runner.
     runs-on: macos-latest
     timeout-minutes: 240
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
     steps:
+      - name: What to publish
+        id: what
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then echo "what=${{ inputs.what }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event.schedule }}" = "0 3 * * 1" ]; then echo "what=places" >> "$GITHUB_OUTPUT"
+          else echo "what=events" >> "$GITHUB_OUTPUT"; fi
+
       - uses: actions/checkout@v4
         with:
           repository: jjrom/snapplanet
           ssh-key: ${{ secrets.SNAPPLANET_DEPLOY_KEY }}
           path: snapplanet
 
+      - name: The site as published
+        run: |
+          git clone --depth 1 --branch gh-pages "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" site \
+            || { mkdir site && git -C site init -b gh-pages; }
+          touch site/.nojekyll
+
       - name: Build
         run: swift build -c release --product snaptest --package-path snapplanet/SnapPlanetCore
 
       - name: Make the pictures
-        run: snapplanet/SnapPlanetCore/.build/release/snaptest publish site ${{ inputs.places }}
+        run: |
+          tool=snapplanet/SnapPlanetCore/.build/release/snaptest
+          if [ "${{ steps.what.outputs.what }}" = "places" ]; then
+            # Kept while running: a place that fails this week copies last week's files from the live site.
+            mkdir -p new && $tool publish new ${{ inputs.ids }}
+            rm -rf site/places site/index.json && cp -R new/places new/index.json site/
+          else
+            mkdir -p new && $tool publish-events new ${{ inputs.ids }}
+            rm -rf site/events && cp -R new/events site/
+          fi
 
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: site
-
-      - id: deploy
-        uses: actions/deploy-pages@v4
+      - name: Publish
+        run: |
+          cd site
+          git config user.name "snapplanet-data"
+          git config user.email "snapplanet-data@users.noreply.github.com"
+          git checkout --orphan next
+          git add -A
+          git commit -q -m "Pictures of $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" next:gh-pages
